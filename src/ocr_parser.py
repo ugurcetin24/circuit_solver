@@ -1,45 +1,50 @@
 def parse_ocr_text(text):
     """
-    Parse OCR text and extract components and their values.
-    Example input:
-        R1 R2
-        100 200
-        V1
-        10V
-    Returns:
-        dict of components
+    Parses raw OCR text into a structured component dictionary.
+    Accepts loose formats like:
+        R1 R2\n100 200\nV1\n10V\n
+    Returns dict with keys as component names and values as dicts containing type, value, and node info.
     """
-    lines = text.strip().split('\n')
+    lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
     components = {}
     resistors = []
-    resistor_values = []
-    voltage_name = ""
-    voltage_value = None
+    values = []
 
-    for line in lines:
-        words = line.strip().split()
-        for word in words:
-            if word.startswith("R"):
-                resistors.append(word)
-            elif word.replace("Ω", "").isdigit():  # ex: 100 or 200
-                resistor_values.append(int(word.replace("Ω", "")))
-            elif word.startswith("V"):
-                voltage_name = word
-            elif "V" in word and word.replace("V", "").isdigit():
-                voltage_value = int(word.replace("V", ""))
+    # Step 1: Rough format normalization
+    for i, line in enumerate(lines):
+        if any(r.startswith("R") for r in line.split()):
+            resistors = line.split()
+        elif all(x.replace('.', '').isdigit() for x in line.split()):
+            values = [float(v) for v in line.split()]
+        elif line.upper().startswith("V"):
+            if i+1 < len(lines) and "V" in lines[i+1].upper():
+                voltage_value = float(lines[i+1].replace("V", "").strip())
+                components[line.strip()] = {
+                    "type": "voltage_source",
+                    "value": voltage_value,
+                    "node1": 1,
+                    "node2": 0
+                }
+        elif line.upper().startswith("I"):
+            if i+1 < len(lines):
+                current_value = float(lines[i+1].replace("mA", "").replace("A", "").strip())
+                components[line.strip()] = {
+                    "type": "current_source",
+                    "value": current_value,
+                    "node1": 2,
+                    "node2": 0
+                }
 
-    # Map resistors
-    for i in range(min(len(resistors), len(resistor_values))):
-        components[resistors[i]] = {
-            "type": "resistor",
-            "value": resistor_values[i]
-        }
-
-    # Map voltage source
-    if voltage_name and voltage_value is not None:
-        components[voltage_name] = {
-            "type": "voltage_source",
-            "value": voltage_value
-        }
+    # Step 2: Assign resistors and values to nodes manually (best guess)
+    for idx, name in enumerate(resistors):
+        if idx < len(values):
+            node1 = idx + 1
+            node2 = 0 if idx + 1 == len(values) else node1 + 1
+            components[name] = {
+                "type": "resistor",
+                "value": values[idx],
+                "node1": node1,
+                "node2": node2
+            }
 
     return components
