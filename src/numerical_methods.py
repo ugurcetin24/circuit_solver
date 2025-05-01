@@ -131,3 +131,24 @@ class Circuit:
             result[f"Node {node} Voltage (V)"] = x[i]
 
         return result
+
+def run_lu_decomposition():
+    return "LU decomposition not yet implemented.\n"
+
+def solve_roots():
+    return "Root finding not yet implemented.\n"
+
+def interpolate_values():
+    return "Interpolation not yet implemented.\n"
+
+def differentiate_data():
+    return "Differentiation not yet implemented.\n"
+
+def integrate_data():
+    return "Integration not yet implemented.\n"
+
+def solve_odes():
+    return "ODE solving not yet implemented.\n"
+
+def optimize_function():
+    return "Optimization not yet implemented.\n"

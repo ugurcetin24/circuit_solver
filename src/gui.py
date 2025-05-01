@@ -1,30 +1,29 @@
 import tkinter as tk
-from tkinter import filedialog, scrolledtext, messagebox
-from ocr_reader import read_text_from_image
-from ocr_parser import parse_ocr_text
+from tkinter import scrolledtext, messagebox
 from circuit_solver import Circuit
-from numerical_methods import run_lu_decomposition, solve_roots, interpolate_values, differentiate_data, integrate_data, solve_odes, optimize_function
+import numpy as np
+import scipy.linalg
+from scipy.optimize import minimize_scalar, minimize
+from scipy.integrate import odeint, quad
+import matplotlib.pyplot as plt
 
 class CircuitSolverGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Numerical Methods Circuit Solver")
+        self.root.title("Numerical Methods Circuit Solver (Manual Input Mode)")
         self.root.geometry("800x800")
 
-        # Text area to show OCR output
-        self.ocr_text = scrolledtext.ScrolledText(root, height=10)
-        self.ocr_text.pack(pady=10)
+        self.manual_text = scrolledtext.ScrolledText(root, height=10)
+        self.manual_text.insert(tk.END, """R1 100 1 2\nR2 200 2 3\nR3 300 2 4\nR4 400 3 5\nV1 10 1 0\nI1 1 5 0""")
+        self.manual_text.pack(pady=10)
 
-        # Text area to show results
         self.result_text = scrolledtext.ScrolledText(root, height=20)
         self.result_text.pack(pady=10)
 
-        # Button grid layout
         button_frame = tk.Frame(root)
         button_frame.pack(pady=10)
 
         buttons = [
-            ("Upload Circuit Image", self.load_image),
             ("Solve Circuit (Nodal)", self.solve_circuit),
             ("Run Error Analysis", self.run_error_analysis),
             ("LU Decomposition", self.run_lu_analysis),
@@ -40,20 +39,32 @@ class CircuitSolverGUI:
             btn = tk.Button(button_frame, text=label, command=command, width=25)
             btn.grid(row=i // 2, column=i % 2, padx=5, pady=5)
 
-        self.ocr_result = ""
-
-    def load_image(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Images", "*.png;*.jpg;*.jpeg")])
-        if file_path:
-            self.ocr_result = read_text_from_image(file_path, save_output=False)
-            self.ocr_text.delete("1.0", tk.END)
-            self.ocr_text.insert(tk.END, self.ocr_result)
+    def parse_manual_input(self):
+        text = self.manual_text.get("1.0", tk.END).strip().splitlines()
+        components = {}
+        for line in text:
+            parts = line.split()
+            if len(parts) != 4:
+                continue
+            name, value, node1, node2 = parts
+            try:
+                value = float(value)
+                node1 = int(node1)
+                node2 = int(node2)
+            except:
+                continue
+            if name.upper().startswith("R"):
+                components[name] = {"type": "resistor", "value": value, "node1": node1, "node2": node2}
+            elif name.upper().startswith("V"):
+                components[name] = {"type": "voltage_source", "value": value, "node1": node1, "node2": node2}
+            elif name.upper().startswith("I"):
+                components[name] = {"type": "current_source", "value": value, "node1": node1, "node2": node2}
+        return components
 
     def solve_circuit(self):
         try:
-            components = parse_ocr_text(self.ocr_result)
+            components = self.parse_manual_input()
             circuit = Circuit()
-
             for name, info in components.items():
                 if info['type'] == 'resistor':
                     circuit.add_resistor(name, info['node1'], info['node2'], info['value'])
@@ -61,22 +72,18 @@ class CircuitSolverGUI:
                     circuit.add_voltage_source(name, info['node1'], info['node2'], info['value'])
                 elif info['type'] == 'current_source':
                     circuit.add_current_source(name, info['node1'], info['node2'], info['value'])
-
             result = circuit.solve_nodal()
-
             self.result_text.delete("1.0", tk.END)
             self.result_text.insert(tk.END, "[Nodal Analysis Result]\n")
             for key, value in result.items():
                 self.result_text.insert(tk.END, f"{key}: {value:.4f} V\n")
-
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
     def run_error_analysis(self):
         try:
-            components = parse_ocr_text(self.ocr_result)
+            components = self.parse_manual_input()
             circuit = Circuit()
-
             for name, info in components.items():
                 if info['type'] == 'resistor':
                     circuit.add_resistor(name, info['node1'], info['node2'], info['value'])
@@ -84,7 +91,6 @@ class CircuitSolverGUI:
                     circuit.add_voltage_source(name, info['node1'], info['node2'], info['value'])
                 elif info['type'] == 'current_source':
                     circuit.add_current_source(name, info['node1'], info['node2'], info['value'])
-
             if not all(
                 (comp['type'] == 'resistor' and comp['node1'] == 1 and comp['node2'] == 0) or
                 (comp['type'] == 'voltage_source' and comp['node1'] == 1 and comp['node2'] == 0)
@@ -92,51 +98,87 @@ class CircuitSolverGUI:
             ):
                 self.result_text.insert(tk.END, "\n[ERROR ANALYSIS] Not a simple series circuit.\n")
                 return
-
             nodal_result = circuit.solve_nodal()
             simple_result = circuit.solve_simple_series()
-
             v1_nodal = nodal_result.get("Node 1 Voltage (V)")
             v1_simple = simple_result.get("Node 1 Voltage (V)")
-
             relative_error = abs(v1_nodal - v1_simple) / abs(v1_nodal)
             percent_error = relative_error * 100
-
             self.result_text.insert(tk.END, f"\n[ERROR ANALYSIS]\n")
             self.result_text.insert(tk.END, f"Node 1 (Nodal): {v1_nodal:.4f} V\n")
             self.result_text.insert(tk.END, f"Node 1 (Series): {v1_simple:.4f} V\n")
             self.result_text.insert(tk.END, f"Percent Error: {percent_error:.2f}%\n")
-
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
     def run_lu_analysis(self):
         self.result_text.insert(tk.END, "\n[LU Decomposition Result]\n")
-        self.result_text.insert(tk.END, run_lu_decomposition())
+        A = np.array([[4, 3], [6, 3]])
+        b = np.array([10, 12])
+        try:
+            lu, piv = scipy.linalg.lu_factor(A)
+            x = scipy.linalg.lu_solve((lu, piv), b)
+            self.result_text.insert(tk.END, f"Solution x: {x}\n")
+        except Exception as e:
+            self.result_text.insert(tk.END, f"LU error: {str(e)}\n")
 
     def run_root_finding(self):
         self.result_text.insert(tk.END, "\n[Root Finding Result]\n")
-        self.result_text.insert(tk.END, solve_roots())
+        f = lambda x: x**3 - x - 2
+        res = minimize_scalar(lambda x: abs(f(x)), bounds=(1, 2), method='bounded')
+        self.result_text.insert(tk.END, f"Approximate root: {res.x:.4f}\n")
 
     def run_interpolation(self):
         self.result_text.insert(tk.END, "\n[Interpolation Result]\n")
-        self.result_text.insert(tk.END, interpolate_values())
+        x = np.array([0, 1, 2, 3])
+        y = np.array([1, 3, 2, 5])
+        xp = np.linspace(0, 3, 100)
+        yp = np.interp(xp, x, y)
+        self.result_text.insert(tk.END, "Interpolated values computed.\n")
+        plt.plot(x, y, 'o', label='Original Data')
+        plt.plot(xp, yp, '-', label='Linear Interpolation')
+        plt.legend()
+        plt.title("Interpolation")
+        plt.grid()
+        plt.show()
 
     def run_differentiation(self):
         self.result_text.insert(tk.END, "\n[Differentiation Result]\n")
-        self.result_text.insert(tk.END, differentiate_data())
+        x = np.linspace(0, 10, 100)
+        y = np.sin(x)
+        dy_dx = np.gradient(y, x)
+        self.result_text.insert(tk.END, "Numerical derivative computed.\n")
+        plt.plot(x, dy_dx, label='dy/dx')
+        plt.title("Numerical Differentiation")
+        plt.grid()
+        plt.legend()
+        plt.show()
 
     def run_integration(self):
         self.result_text.insert(tk.END, "\n[Integration Result]\n")
-        self.result_text.insert(tk.END, integrate_data())
+        f = lambda x: np.exp(-x**2)
+        area, _ = quad(f, 0, 1)
+        self.result_text.insert(tk.END, f"Integral of exp(-x^2) from 0 to 1: {area:.4f}\n")
 
     def run_ode_solver(self):
         self.result_text.insert(tk.END, "\n[ODE Solution Result]\n")
-        self.result_text.insert(tk.END, solve_odes())
+        def model(y, t):
+            dydt = -2 * y
+            return dydt
+        t = np.linspace(0, 5, 100)
+        y0 = 1
+        y = odeint(model, y0, t)
+        self.result_text.insert(tk.END, "ODE solution computed.\n")
+        plt.plot(t, y)
+        plt.title("ODE Solution: dy/dt = -2y")
+        plt.grid()
+        plt.show()
 
     def run_optimization(self):
         self.result_text.insert(tk.END, "\n[Optimization Result]\n")
-        self.result_text.insert(tk.END, optimize_function())
+        f = lambda x: (x - 2)**2 + 1
+        res = minimize_scalar(f, bounds=(0, 4), method='bounded')
+        self.result_text.insert(tk.END, f"Minimum at x = {res.x:.4f}, f(x) = {res.fun:.4f}\n")
 
 if __name__ == "__main__":
     root = tk.Tk()
