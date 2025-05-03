@@ -211,23 +211,23 @@ class CircuitSolverGUI:
         b1 = np.array([10, 12])
         b2 = np.array([20, 30])
         try:
-            start_direct = time.time()
+            start_direct = time.perf_counter()
             x1_direct = np.linalg.solve(A, b1)
             x2_direct = np.linalg.solve(A, b2)
-            time_direct = time.time() - start_direct
+            time_direct = time.perf_counter() - start_direct
 
-            start_lu = time.time()
+            start_lu = time.perf_counter()
             lu, piv = scipy.linalg.lu_factor(A)
             x1_lu = scipy.linalg.lu_solve((lu, piv), b1)
             x2_lu = scipy.linalg.lu_solve((lu, piv), b2)
-            time_lu = time.time() - start_lu
+            time_lu = time.perf_counter() - start_lu
 
             self.result_text.insert(tk.END, f"Direct Solve (b1): {x1_direct}\n")
             self.result_text.insert(tk.END, f"Direct Solve (b2): {x2_direct}\n")
             self.result_text.insert(tk.END, f"LU Solve (b1): {x1_lu}\n")
             self.result_text.insert(tk.END, f"LU Solve (b2): {x2_lu}\n")
-            self.result_text.insert(tk.END, f"\nTime (Direct Total): {time_direct:.6f} seconds\n")
-            self.result_text.insert(tk.END, f"Time (LU Total): {time_lu:.6f} seconds\n")
+            self.result_text.insert(tk.END, f"\nTime (Direct Total): {time_direct:.8f} seconds\n")
+            self.result_text.insert(tk.END, f"Time (LU Total): {time_lu:.8f} seconds\n")
         except Exception as e:
             self.result_text.insert(tk.END, f"Error: {str(e)}\n")
 
