@@ -12,16 +12,40 @@ class CircuitSolverGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Numerical Methods Circuit Solver (Manual Input Mode)")
-        self.root.geometry("800x800")
+        self.root.state("zoomed")  # Fullscreen
 
-        self.manual_text = scrolledtext.ScrolledText(root, height=10)
+        # Ana çerçeve: sol, merkez, sağ
+        main_frame = tk.Frame(root)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Sol: Kullanım Talimatları
+        left_hint = tk.Label(
+            main_frame,
+            text="How to use:\n- Enter circuit elements line by line\n- Click on any numerical method\n- See results below\n\nExample Steps:\n1. Paste or type circuit\n2. Press 'Solve Circuit'\n3. Try LU, ODE, etc.",
+            justify="left", anchor="n"
+        )
+        left_hint.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
+
+        # Sağ: Format Bilgisi
+        right_hint = tk.Label(
+            main_frame,
+            text="Input Format:\n- R1 100 1 2\n- V1 10 1 0\n- I1 1.5 2 0\n\nNotes:\n- Use node 0 as ground\n- Use integers for node numbers\n- Decimal values allowed for sources",
+            justify="left", anchor="n"
+        )
+        right_hint.pack(side=tk.RIGHT, fill=tk.Y, padx=10, pady=10)
+
+        # Orta: Ana içeriği taşıyan frame
+        center_frame = tk.Frame(main_frame)
+        center_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.manual_text = scrolledtext.ScrolledText(center_frame, height=10)
         self.manual_text.insert(tk.END, """R1 100 1 2\nR2 200 2 3\nR3 300 2 4\nR4 400 3 5\nV1 10 1 0\nI1 1 5 0""")
-        self.manual_text.pack(pady=10)
+        self.manual_text.pack(pady=10, fill=tk.X)
 
-        self.result_text = scrolledtext.ScrolledText(root, height=20)
-        self.result_text.pack(pady=10)
+        self.result_text = scrolledtext.ScrolledText(center_frame, height=20)
+        self.result_text.pack(pady=10, fill=tk.BOTH, expand=True)
 
-        button_frame = tk.Frame(root)
+        button_frame = tk.Frame(center_frame)
         button_frame.pack(pady=10)
 
         buttons = [
@@ -40,6 +64,25 @@ class CircuitSolverGUI:
         for i, (label, command) in enumerate(buttons):
             btn = tk.Button(button_frame, text=label, command=command, width=25)
             btn.grid(row=i // 2, column=i % 2, padx=5, pady=5)
+
+    def solve_circuit(self):
+        try:
+            components = self.parse_manual_input()
+            circuit = Circuit()
+            for name, info in components.items():
+                if info['type'] == 'resistor':
+                    circuit.add_resistor(name, info['node1'], info['node2'], info['value'])
+                elif info['type'] == 'voltage_source':
+                    circuit.add_voltage_source(name, info['node1'], info['node2'], info['value'])
+                elif info['type'] == 'current_source':
+                    circuit.add_current_source(name, info['node1'], info['node2'], info['value'])
+            result = circuit.solve_nodal()
+            self.result_text.delete("1.0", tk.END)
+            self.result_text.insert(tk.END, "[Nodal Analysis Result]\n")
+            for key, value in result.items():
+                self.result_text.insert(tk.END, f"{key}: {value:.4f} V\n")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
 
     def parse_manual_input(self):
         text = self.manual_text.get("1.0", tk.END).strip().splitlines()
@@ -62,25 +105,6 @@ class CircuitSolverGUI:
             elif name.upper().startswith("I"):
                 components[name] = {"type": "current_source", "value": value, "node1": node1, "node2": node2}
         return components
-
-    def solve_circuit(self):
-        try:
-            components = self.parse_manual_input()
-            circuit = Circuit()
-            for name, info in components.items():
-                if info['type'] == 'resistor':
-                    circuit.add_resistor(name, info['node1'], info['node2'], info['value'])
-                elif info['type'] == 'voltage_source':
-                    circuit.add_voltage_source(name, info['node1'], info['node2'], info['value'])
-                elif info['type'] == 'current_source':
-                    circuit.add_current_source(name, info['node1'], info['node2'], info['value'])
-            result = circuit.solve_nodal()
-            self.result_text.delete("1.0", tk.END)
-            self.result_text.insert(tk.END, "[Nodal Analysis Result]\n")
-            for key, value in result.items():
-                self.result_text.insert(tk.END, f"{key}: {value:.4f} V\n")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
 
     def run_error_analysis(self):
         try:
@@ -165,8 +189,7 @@ class CircuitSolverGUI:
     def run_ode_solver(self):
         self.result_text.insert(tk.END, "\n[ODE Solution Result]\n")
         def model(y, t):
-            dydt = -2 * y
-            return dydt
+            return -2 * y
         t = np.linspace(0, 5, 100)
         y0 = 1
         y = odeint(model, y0, t)
