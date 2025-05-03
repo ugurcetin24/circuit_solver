@@ -6,6 +6,7 @@ import scipy.linalg
 from scipy.optimize import minimize_scalar, minimize
 from scipy.integrate import odeint, quad
 import matplotlib.pyplot as plt
+import time
 
 class CircuitSolverGUI:
     def __init__(self, root):
@@ -32,7 +33,8 @@ class CircuitSolverGUI:
             ("Differentiation", self.run_differentiation),
             ("Integration", self.run_integration),
             ("Solve ODE", self.run_ode_solver),
-            ("Optimization", self.run_optimization)
+            ("Optimization", self.run_optimization),
+            ("LU vs Direct Comparison", self.run_lu_vs_direct)
         ]
 
         for i, (label, command) in enumerate(buttons):
@@ -179,6 +181,32 @@ class CircuitSolverGUI:
         f = lambda x: (x - 2)**2 + 1
         res = minimize_scalar(f, bounds=(0, 4), method='bounded')
         self.result_text.insert(tk.END, f"Minimum at x = {res.x:.4f}, f(x) = {res.fun:.4f}\n")
+
+    def run_lu_vs_direct(self):
+        self.result_text.insert(tk.END, "\n[LU vs Direct Solver Comparison]\n")
+        A = np.array([[4, 3], [6, 3]])
+        b1 = np.array([10, 12])
+        b2 = np.array([20, 30])
+        try:
+            start_direct = time.time()
+            x1_direct = np.linalg.solve(A, b1)
+            x2_direct = np.linalg.solve(A, b2)
+            time_direct = time.time() - start_direct
+
+            start_lu = time.time()
+            lu, piv = scipy.linalg.lu_factor(A)
+            x1_lu = scipy.linalg.lu_solve((lu, piv), b1)
+            x2_lu = scipy.linalg.lu_solve((lu, piv), b2)
+            time_lu = time.time() - start_lu
+
+            self.result_text.insert(tk.END, f"Direct Solve (b1): {x1_direct}\n")
+            self.result_text.insert(tk.END, f"Direct Solve (b2): {x2_direct}\n")
+            self.result_text.insert(tk.END, f"LU Solve (b1): {x1_lu}\n")
+            self.result_text.insert(tk.END, f"LU Solve (b2): {x2_lu}\n")
+            self.result_text.insert(tk.END, f"\nTime (Direct Total): {time_direct:.6f} seconds\n")
+            self.result_text.insert(tk.END, f"Time (LU Total): {time_lu:.6f} seconds\n")
+        except Exception as e:
+            self.result_text.insert(tk.END, f"Error: {str(e)}\n")
 
 if __name__ == "__main__":
     root = tk.Tk()
