@@ -1,24 +1,27 @@
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
 from circuit_solver import Circuit
-import numpy as np
-import scipy.linalg
-from scipy.optimize import minimize_scalar, minimize
-from scipy.integrate import odeint, quad
+from numerical_methods import (
+    run_lu_decomposition,
+    solve_roots,
+    interpolate_values,
+    differentiate_data,
+    integrate_data,
+    solve_odes,
+    optimize_function,
+    compare_lu_vs_direct
+)
 import matplotlib.pyplot as plt
-import time
 
 class CircuitSolverGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Numerical Methods Circuit Solver (Manual Input Mode)")
-        self.root.state("zoomed")  # Fullscreen
+        self.root.state("zoomed")
 
-        # Ana çerçeve: sol, merkez, sağ
         main_frame = tk.Frame(root)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Sol: Kullanım Talimatları
         left_hint = tk.Label(
             main_frame,
             text="How to use:\n- Enter circuit elements line by line\n- Click on any numerical method\n- See results below\n\nExample Steps:\n1. Paste or type circuit\n2. Press 'Solve Circuit'\n3. Try LU, ODE, etc.",
@@ -26,7 +29,6 @@ class CircuitSolverGUI:
         )
         left_hint.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
 
-        # Sağ: Format Bilgisi
         right_hint = tk.Label(
             main_frame,
             text="Input Format:\n- R1 100 1 2\n- V1 10 1 0\n- I1 1.5 2 0\n\nNotes:\n- Use node 0 as ground\n- Use integers for node numbers\n- Decimal values allowed for sources",
@@ -34,7 +36,6 @@ class CircuitSolverGUI:
         )
         right_hint.pack(side=tk.RIGHT, fill=tk.Y, padx=10, pady=10)
 
-        # Orta: Ana içeriği taşıyan frame
         center_frame = tk.Frame(main_frame)
         center_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -65,25 +66,6 @@ class CircuitSolverGUI:
             btn = tk.Button(button_frame, text=label, command=command, width=25)
             btn.grid(row=i // 2, column=i % 2, padx=5, pady=5)
 
-    def solve_circuit(self):
-        try:
-            components = self.parse_manual_input()
-            circuit = Circuit()
-            for name, info in components.items():
-                if info['type'] == 'resistor':
-                    circuit.add_resistor(name, info['node1'], info['node2'], info['value'])
-                elif info['type'] == 'voltage_source':
-                    circuit.add_voltage_source(name, info['node1'], info['node2'], info['value'])
-                elif info['type'] == 'current_source':
-                    circuit.add_current_source(name, info['node1'], info['node2'], info['value'])
-            result = circuit.solve_nodal()
-            self.result_text.delete("1.0", tk.END)
-            self.result_text.insert(tk.END, "[Nodal Analysis Result]\n")
-            for key, value in result.items():
-                self.result_text.insert(tk.END, f"{key}: {value:.4f} V\n")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
     def parse_manual_input(self):
         text = self.manual_text.get("1.0", tk.END).strip().splitlines()
         components = {}
@@ -106,6 +88,25 @@ class CircuitSolverGUI:
                 components[name] = {"type": "current_source", "value": value, "node1": node1, "node2": node2}
         return components
 
+    def solve_circuit(self):
+        try:
+            components = self.parse_manual_input()
+            circuit = Circuit()
+            for name, info in components.items():
+                if info['type'] == 'resistor':
+                    circuit.add_resistor(name, info['node1'], info['node2'], info['value'])
+                elif info['type'] == 'voltage_source':
+                    circuit.add_voltage_source(name, info['node1'], info['node2'], info['value'])
+                elif info['type'] == 'current_source':
+                    circuit.add_current_source(name, info['node1'], info['node2'], info['value'])
+            result = circuit.solve_nodal()
+            self.result_text.delete("1.0", tk.END)
+            self.result_text.insert(tk.END, "[Nodal Analysis Result]\n")
+            for key, value in result.items():
+                self.result_text.insert(tk.END, f"{key}: {value:.4f} V\n")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
     def run_error_analysis(self):
         try:
             components = self.parse_manual_input()
@@ -117,13 +118,6 @@ class CircuitSolverGUI:
                     circuit.add_voltage_source(name, info['node1'], info['node2'], info['value'])
                 elif info['type'] == 'current_source':
                     circuit.add_current_source(name, info['node1'], info['node2'], info['value'])
-            if not all(
-                (comp['type'] == 'resistor' and comp['node1'] == 1 and comp['node2'] == 0) or
-                (comp['type'] == 'voltage_source' and comp['node1'] == 1 and comp['node2'] == 0)
-                for comp in circuit.components
-            ):
-                self.result_text.insert(tk.END, "\n[ERROR ANALYSIS] Not a simple series circuit.\n")
-                return
             nodal_result = circuit.solve_nodal()
             simple_result = circuit.solve_simple_series()
             v1_nodal = nodal_result.get("Node 1 Voltage (V)")
@@ -139,27 +133,20 @@ class CircuitSolverGUI:
 
     def run_lu_analysis(self):
         self.result_text.insert(tk.END, "\n[LU Decomposition Result]\n")
-        A = np.array([[4, 3], [6, 3]])
-        b = np.array([10, 12])
         try:
-            lu, piv = scipy.linalg.lu_factor(A)
-            x = scipy.linalg.lu_solve((lu, piv), b)
+            A, b, x = run_lu_decomposition()
             self.result_text.insert(tk.END, f"Solution x: {x}\n")
         except Exception as e:
             self.result_text.insert(tk.END, f"LU error: {str(e)}\n")
 
     def run_root_finding(self):
         self.result_text.insert(tk.END, "\n[Root Finding Result]\n")
-        f = lambda x: x**3 - x - 2
-        res = minimize_scalar(lambda x: abs(f(x)), bounds=(1, 2), method='bounded')
-        self.result_text.insert(tk.END, f"Approximate root: {res.x:.4f}\n")
+        root = solve_roots()
+        self.result_text.insert(tk.END, f"Approximate root: {root:.4f}\n")
 
     def run_interpolation(self):
         self.result_text.insert(tk.END, "\n[Interpolation Result]\n")
-        x = np.array([0, 1, 2, 3])
-        y = np.array([1, 3, 2, 5])
-        xp = np.linspace(0, 3, 100)
-        yp = np.interp(xp, x, y)
+        x, y, xp, yp = interpolate_values()
         self.result_text.insert(tk.END, "Interpolated values computed.\n")
         plt.plot(x, y, 'o', label='Original Data')
         plt.plot(xp, yp, '-', label='Linear Interpolation')
@@ -170,9 +157,7 @@ class CircuitSolverGUI:
 
     def run_differentiation(self):
         self.result_text.insert(tk.END, "\n[Differentiation Result]\n")
-        x = np.linspace(0, 10, 100)
-        y = np.sin(x)
-        dy_dx = np.gradient(y, x)
+        x, dy_dx = differentiate_data()
         self.result_text.insert(tk.END, "Numerical derivative computed.\n")
         plt.plot(x, dy_dx, label='dy/dx')
         plt.title("Numerical Differentiation")
@@ -182,17 +167,12 @@ class CircuitSolverGUI:
 
     def run_integration(self):
         self.result_text.insert(tk.END, "\n[Integration Result]\n")
-        f = lambda x: np.exp(-x**2)
-        area, _ = quad(f, 0, 1)
+        area = integrate_data()
         self.result_text.insert(tk.END, f"Integral of exp(-x^2) from 0 to 1: {area:.4f}\n")
 
     def run_ode_solver(self):
         self.result_text.insert(tk.END, "\n[ODE Solution Result]\n")
-        def model(y, t):
-            return -2 * y
-        t = np.linspace(0, 5, 100)
-        y0 = 1
-        y = odeint(model, y0, t)
+        t, y = solve_odes()
         self.result_text.insert(tk.END, "ODE solution computed.\n")
         plt.plot(t, y)
         plt.title("ODE Solution: dy/dt = -2y")
@@ -201,35 +181,18 @@ class CircuitSolverGUI:
 
     def run_optimization(self):
         self.result_text.insert(tk.END, "\n[Optimization Result]\n")
-        f = lambda x: (x - 2)**2 + 1
-        res = minimize_scalar(f, bounds=(0, 4), method='bounded')
-        self.result_text.insert(tk.END, f"Minimum at x = {res.x:.4f}, f(x) = {res.fun:.4f}\n")
+        x_min, f_min = optimize_function()
+        self.result_text.insert(tk.END, f"Minimum at x = {x_min:.4f}, f(x) = {f_min:.4f}\n")
 
     def run_lu_vs_direct(self):
         self.result_text.insert(tk.END, "\n[LU vs Direct Solver Comparison]\n")
-        A = np.array([[4, 3], [6, 3]])
-        b1 = np.array([10, 12])
-        b2 = np.array([20, 30])
-        try:
-            start_direct = time.perf_counter()
-            x1_direct = np.linalg.solve(A, b1)
-            x2_direct = np.linalg.solve(A, b2)
-            time_direct = time.perf_counter() - start_direct
-
-            start_lu = time.perf_counter()
-            lu, piv = scipy.linalg.lu_factor(A)
-            x1_lu = scipy.linalg.lu_solve((lu, piv), b1)
-            x2_lu = scipy.linalg.lu_solve((lu, piv), b2)
-            time_lu = time.perf_counter() - start_lu
-
-            self.result_text.insert(tk.END, f"Direct Solve (b1): {x1_direct}\n")
-            self.result_text.insert(tk.END, f"Direct Solve (b2): {x2_direct}\n")
-            self.result_text.insert(tk.END, f"LU Solve (b1): {x1_lu}\n")
-            self.result_text.insert(tk.END, f"LU Solve (b2): {x2_lu}\n")
-            self.result_text.insert(tk.END, f"\nTime (Direct Total): {time_direct:.8f} seconds\n")
-            self.result_text.insert(tk.END, f"Time (LU Total): {time_lu:.8f} seconds\n")
-        except Exception as e:
-            self.result_text.insert(tk.END, f"Error: {str(e)}\n")
+        results = compare_lu_vs_direct()
+        self.result_text.insert(tk.END, f"Direct Solve (b1): {results['x1_direct']}\n")
+        self.result_text.insert(tk.END, f"Direct Solve (b2): {results['x2_direct']}\n")
+        self.result_text.insert(tk.END, f"LU Solve (b1): {results['x1_lu']}\n")
+        self.result_text.insert(tk.END, f"LU Solve (b2): {results['x2_lu']}\n")
+        self.result_text.insert(tk.END, f"\nTime (Direct Total): {results['time_direct']:.8f} seconds\n")
+        self.result_text.insert(tk.END, f"Time (LU Total): {results['time_lu']:.8f} seconds\n")
 
 if __name__ == "__main__":
     root = tk.Tk()
