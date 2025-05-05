@@ -1,154 +1,82 @@
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize_scalar
+from scipy.integrate import odeint, quad
+import scipy.linalg
+import time
 
-class Circuit:
-    def __init__(self):
-        self.components = []
-        self.nodes = set()
-
-    def add_resistor(self, name, node1, node2, value):
-        self.components.append({
-            "type": "resistor",
-            "name": name,
-            "node1": node1,
-            "node2": node2,
-            "value": value
-        })
-        self.nodes.update([node1, node2])
-
-    def add_voltage_source(self, name, node1, node2, value):
-        self.components.append({
-            "type": "voltage_source",
-            "name": name,
-            "node1": node1,
-            "node2": node2,
-            "value": value
-        })
-        self.nodes.update([node1, node2])
-
-    def add_current_source(self, name, node1, node2, value):
-        self.components.append({
-            "type": "current_source",
-            "name": name,
-            "node1": node1,
-            "node2": node2,
-            "value": value
-        })
-        self.nodes.update([node1, node2])
-
-    def show_components(self):
-        for comp in self.components:
-            print(comp)
-
-    def solve_simple_series(self):
-        total_resistance = 0
-        voltage = 0
-        for comp in self.components:
-            if comp["type"] == "resistor":
-                total_resistance += comp["value"]
-            elif comp["type"] == "voltage_source":
-                voltage = comp["value"]
-
-        if total_resistance == 0:
-            raise ValueError("Total resistance is zero, cannot solve.")
-
-        current = voltage / total_resistance
-        return {
-            "Node 1 Voltage (V)": voltage,
-            "Node 0 Voltage (V)": 0,
-            "Circuit Current (A)": current
-        }
-
-    def solve_nodal(self):
-        nodes = set()
-        voltage_sources = []
-        for comp in self.components:
-            nodes.update([comp["node1"], comp["node2"]])
-            if comp["type"] == "voltage_source":
-                voltage_sources.append(comp)
-
-        nodes.discard(0)
-        node_list = sorted(list(nodes))
-        node_index = {node: i for i, node in enumerate(node_list)}
-        n = len(node_list)
-        m = len(voltage_sources)
-
-        A = np.zeros((n + m, n + m))
-        b = np.zeros(n + m)
-
-        v_idx = 0
-        for comp in self.components:
-            n1 = comp["node1"]
-            n2 = comp["node2"]
-            value = comp["value"]
-
-            if comp["type"] == "resistor":
-                g = 1 / value
-                if n1 != 0:
-                    i = node_index[n1]
-                    A[i][i] += g
-                if n2 != 0:
-                    j = node_index[n2]
-                    A[j][j] += g
-                if n1 != 0 and n2 != 0:
-                    i = node_index[n1]
-                    j = node_index[n2]
-                    A[i][j] -= g
-                    A[j][i] -= g
-
-            elif comp["type"] == "current_source":
-                if n1 != 0:
-                    i = node_index[n1]
-                    b[i] -= value
-                if n2 != 0:
-                    j = node_index[n2]
-                    b[j] += value
-
-        for vs in voltage_sources:
-            n1 = vs["node1"]
-            n2 = vs["node2"]
-            v_value = vs["value"]
-            row = n + v_idx
-
-            if n1 != 0:
-                i = node_index[n1]
-                A[row][i] = 1
-                A[i][row] = 1
-            if n2 != 0:
-                j = node_index[n2]
-                A[row][j] = -1
-                A[j][row] = -1
-
-            b[row] = v_value
-            v_idx += 1
-
-        try:
-            x = np.linalg.solve(A, b)
-        except np.linalg.LinAlgError:
-            raise ValueError("System matrix is singular — cannot solve.")
-
-        result = {}
-        for i, node in enumerate(node_list):
-            result[f"Node {node} Voltage (V)"] = x[i]
-
-        return result
-
+# LU Decomposition
 def run_lu_decomposition():
-    return "LU decomposition not yet implemented.\n"
+    A = np.array([[4, 3], [6, 3]])
+    b = np.array([10, 12])
+    lu, piv = scipy.linalg.lu_factor(A)
+    x = scipy.linalg.lu_solve((lu, piv), b)
+    return A, b, x
 
+# Root Finding
 def solve_roots():
-    return "Root finding not yet implemented.\n"
+    f = lambda x: x**3 - x - 2
+    res = minimize_scalar(lambda x: abs(f(x)), bounds=(1, 2), method='bounded')
+    return res.x
 
+# Interpolation
 def interpolate_values():
-    return "Interpolation not yet implemented.\n"
+    x = np.array([0, 1, 2, 3])
+    y = np.array([1, 3, 2, 5])
+    xp = np.linspace(0, 3, 100)
+    yp = np.interp(xp, x, y)
+    return x, y, xp, yp
 
+# Differentiation
 def differentiate_data():
-    return "Differentiation not yet implemented.\n"
+    x = np.linspace(0, 10, 100)
+    y = np.sin(x)
+    dy_dx = np.gradient(y, x)
+    return x, dy_dx
 
+# Integration
 def integrate_data():
-    return "Integration not yet implemented.\n"
+    f = lambda x: np.exp(-x**2)
+    area, _ = quad(f, 0, 1)
+    return area
 
+# ODE Solving
 def solve_odes():
-    return "ODE solving not yet implemented.\n"
+    def model(y, t):
+        return -2 * y
+    t = np.linspace(0, 5, 100)
+    y0 = 1
+    y = odeint(model, y0, t)
+    return t, y
 
+# Optimization
 def optimize_function():
-    return "Optimization not yet implemented.\n"
+    f = lambda x: (x - 2)**2 + 1
+    res = minimize_scalar(f, bounds=(0, 4), method='bounded')
+    return res.x, res.fun
+
+# LU vs Direct Comparison
+def compare_lu_vs_direct():
+    A = np.array([[4, 3], [6, 3]])
+    b1 = np.array([10, 12])
+    b2 = np.array([20, 30])
+
+    start_direct = time.perf_counter()
+    x1_direct = np.linalg.solve(A, b1)
+    x2_direct = np.linalg.solve(A, b2)
+    time_direct = time.perf_counter() - start_direct
+
+    start_lu = time.perf_counter()
+    lu, piv = scipy.linalg.lu_factor(A)
+    x1_lu = scipy.linalg.lu_solve((lu, piv), b1)
+    x2_lu = scipy.linalg.lu_solve((lu, piv), b2)
+    time_lu = time.perf_counter() - start_lu
+
+    return {
+        "x1_direct": x1_direct,
+        "x2_direct": x2_direct,
+        "x1_lu": x1_lu,
+        "x2_lu": x2_lu,
+        "time_direct": time_direct,
+        "time_lu": time_lu
+    }
