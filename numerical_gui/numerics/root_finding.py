@@ -1,74 +1,47 @@
 """
-Root-Finding module – adjusts R1 so that node-2 voltage reaches a target value
-using the bisection method.
-
-Workflow
---------
-1. Replace R1's value in the netlist with a test value.
-2. Solve the circuit (reuse helpers from linear_solver).
-3. Compute f(R) = V_target – V2(R).
-4. Apply bisection until |f(R)| < TOL.
+Root Finding
+------------
+R1 aralığında V_target gerilimini sağlayan değeri biseksiyonla bulur
+(panel parametreleri: R1_min, R1_max, V_target).
 """
 import numpy as np
-from numerics.linear_solver import parse_netlist, build_mna   # helper funcs
+from numerics.linear_solver import parse_netlist, build_mna
 
-TARGET_NODE = 2          # node whose voltage we control
-TARGET_V   = 5.0         # desired voltage at that node  (V)
-TOL        = 1e-3        # acceptable voltage error     (V)
-MAX_ITER   = 30          # max bisection iterations
-R_MIN, R_MAX = 1.0, 1e5  # initial bracket for R1 (Ω)
+MAX_ITER, TOL = 30, 1e-3
 
 
-# --------------------------------------------------------------------------- #
-def _node_voltage(netlist: str, r_value: float) -> float:
-    """Return V(TARGET_NODE) when R1 = <r_value> Ω."""
-    new_lines = []
-    substituted = False
-    for ln in netlist.strip().splitlines():
-        if not substituted and ln.upper().startswith("R1"):
-            parts = ln.split()
-            parts[-1] = str(r_value)
-            ln = " ".join(parts)
-            substituted = True
-        new_lines.append(ln)
-
-    updated_net = "\n".join(new_lines)
-    circ = parse_netlist(updated_net)
+def _voltage(net, R1, node=2):
+    lines, done = [], False
+    for ln in net.strip().splitlines():
+        if not done and ln.upper().startswith("R1"):
+            p = ln.split(); p[-1] = str(R1); ln = " ".join(p); done = True
+        lines.append(ln)
+    circ = parse_netlist("\n".join(lines))
     G, b, nodes = build_mna(circ)
     v = np.linalg.solve(G, b)
-    return float(v[nodes.index(TARGET_NODE)])
+    return float(v[nodes.index(node)])
 
 
-# --------------------------------------------------------------------------- #
-def run(netlist_str: str, fig):
-    """
-    GUI entry point – performs bisection on R1 until V₂ ≈ TARGET_V.
-    Returns a textual report; no plot is generated.
-    """
-    # Evaluate function at bracket ends
-    f_min = _node_voltage(netlist_str, R_MIN) - TARGET_V
-    f_max = _node_voltage(netlist_str, R_MAX) - TARGET_V
+def run(netlist_str: str, fig, params=None):
+    params = params or {}
+    R_lo = params.get("R1_min", 10.0)
+    R_hi = params.get("R1_max", 10_000.0)
+    V_t  = params.get("V_target", 5.0)
 
-    if f_min * f_max > 0:
-        return ("Bisection failed: target voltage is not bracketed.\n"
-                "Try widening R_MIN/R_MAX or picking another TARGET_V.")
-
-    r_lo, r_hi = R_MIN, R_MAX
-    f_lo, f_hi = f_min, f_max
+    f_lo = _voltage(netlist_str, R_lo) - V_t
+    f_hi = _voltage(netlist_str, R_hi) - V_t
+    if f_lo * f_hi > 0:
+        return "Bisection failed: change R range or V_target."
 
     for _ in range(MAX_ITER):
-        r_mid = 0.5 * (r_lo + r_hi)
-        v_mid = _node_voltage(netlist_str, r_mid)
-        f_mid = v_mid - TARGET_V
-
+        R_mid = 0.5 * (R_lo + R_hi)
+        V_mid = _voltage(netlist_str, R_mid)
+        f_mid = V_mid - V_t
         if abs(f_mid) < TOL:
             break
+        if f_lo * f_mid < 0:
+            R_hi, f_hi = R_mid, f_mid
+        else:
+            R_lo, f_lo = R_mid, f_mid
 
-        # Update bracket
-        if f_lo * f_mid < 0:        # root in [r_lo, r_mid]
-            r_hi, f_hi = r_mid, f_mid
-        else:                       # root in [r_mid, r_hi]
-            r_lo, f_lo = r_mid, f_mid
-
-    return (f"Bisection result: R1 ≈ {r_mid:.2f} Ω  "
-            f"gives V2 ≈ {v_mid:.3f} V  (target {TARGET_V} V)")
+    return f"R1 ≈ {R_mid:.2f} Ω → V2 ≈ {V_mid:.3f} V (target {V_t} V)"

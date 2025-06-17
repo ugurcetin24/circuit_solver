@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
-from circuit_solver import Circuit
+from numerical_gui.circuit.circuit_solver import Circuit
 from numerical_methods import (
     run_lu_decomposition,
     solve_roots,

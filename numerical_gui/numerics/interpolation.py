@@ -1,61 +1,41 @@
 """
-Interpolation module – samples node-1 voltage versus R1 value, then builds
-a cubic spline and plots both the raw points and the smooth curve.
-
-Assumptions
------------
-* The first resistor line in the netlist starts with "R1".
-* We vary R1 while all other elements stay constant.
+Interpolation
+-------------
+R1_min–R1_max aralığında V1(R1) örnekler, kubik spline çizer.
+Panele bağlı parametre: R1_min, R1_max
 """
-
 import numpy as np
 from scipy.interpolate import CubicSpline
-from numerics.linear_solver import parse_netlist, build_mna   # reuse helpers
+from numerics.linear_solver import parse_netlist, build_mna
 
 
-# --------------------------------------------------------------------------- #
-def _v1_given_R(netlist_str: str, r_value: float) -> float:
-    """Return node-1 voltage when R1 = r_value (Ω)."""
-    lines = []
-    done = False
-    for ln in netlist_str.strip().splitlines():
+def _v1(net, R1):
+    done, lines = False, []
+    for ln in net.strip().splitlines():
         if not done and ln.upper().startswith("R1"):
-            parts = ln.split()
-            parts[-1] = str(r_value)
-            ln = " ".join(parts)
-            done = True
+            p = ln.split(); p[-1] = str(R1); ln = " ".join(p); done = True
         lines.append(ln)
     circ = parse_netlist("\n".join(lines))
     G, b, nodes = build_mna(circ)
-    v = np.linalg.solve(G, b)
-    return float(v[nodes.index(1)])          # node-1 is index 1 in nodes list
+    return float(np.linalg.solve(G, b)[nodes.index(1)])
 
 
-# --------------------------------------------------------------------------- #
-def run(netlist_str: str, fig):
-    """
-    Called by GUI when 'Interpolation' button is pressed.
-    Draws scatter points (sampled V1) and cubic-spline curve.
-    """
-    # ---- sample data -------------------------------------------------------
-    R_min, R_max, N = 10.0, 10_000.0, 12          # Ω
-    r_vals = np.linspace(R_min, R_max, N)
-    v_vals = np.array([_v1_given_R(netlist_str, R) for R in r_vals])
+def run(netlist_str: str, fig, params=None):
+    p = params or {}
+    R_lo = p.get("R1_min", 10.0)
+    R_hi = p.get("R1_max", 10_000.0)
 
-    # ---- cubic spline fit --------------------------------------------------
-    spline = CubicSpline(r_vals, v_vals)
-    r_dense = np.linspace(R_min, R_max, 300)
-    v_dense = spline(r_dense)
+    r = np.linspace(R_lo, R_hi, 12)
+    v = np.array([_v1(netlist_str, x) for x in r])
+    cs = CubicSpline(r, v)
 
-    # ---- plot --------------------------------------------------------------
     fig.clf()
     ax = fig.add_subplot(111)
-    ax.plot(r_vals, v_vals, "o", label="samples")
-    ax.plot(r_dense, v_dense, "-", label="cubic spline")
+    ax.plot(r, v, "o", label="samples")
+    r_d = np.linspace(R_lo, R_hi, 300)
+    ax.plot(r_d, cs(r_d), "-", label="spline")
     ax.set_xlabel("R1 (Ω)")
     ax.set_ylabel("V1 (V)")
-    ax.set_title("V1 vs R1 – cubic spline")
-    ax.legend()
-    fig.tight_layout()
+    ax.legend(); fig.tight_layout()
 
-    return "Cubic spline drawn for V1(R1)"
+    return "Cubic spline drawn"

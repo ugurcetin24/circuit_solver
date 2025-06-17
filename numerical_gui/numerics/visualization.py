@@ -1,77 +1,40 @@
 """
-Visualization module – animates node-1 voltage when the source amplitude
-varies as  V1(t) = 10 V · sin(2π t)   (f = 1 Hz).
+Visualization
+-------------
+V1(t) = 10·sin(2πt) (1 Hz) olarak değişirken node-1 gerilimini canlı çizer.
+Parametre: yok
 """
-
 import numpy as np
 from matplotlib.animation import FuncAnimation
-from circuit.circuit_solver import Circuit
-from numerics.linear_solver import parse_netlist, build_mna   # reuse helpers
+from numerics.linear_solver import parse_netlist, build_mna
 
 
-# --------------------------------------------------------------------------- #
-def _solve_voltage(node: int, amplitude: float, base_netlist: str) -> float:
-    """
-    Return voltage at <node> when the V1 source amplitude is <amplitude> volts.
-    """
-    new_lines = []
-    for ln in base_netlist.strip().splitlines():
+def _v1(net, amp):
+    lines = []
+    for ln in net.strip().splitlines():
         if ln.upper().startswith("V1"):
-            parts = ln.split()
-            parts[-1] = str(amplitude)          # replace value
-            ln = " ".join(parts)
-        new_lines.append(ln)
-    net = "\n".join(new_lines)
-
-    circ = parse_netlist(net)
-    G, i_vec, nodes = build_mna(circ)
-    v = np.linalg.solve(G, i_vec)
-
-    try:
-        idx = nodes.index(node)
-        return float(v[idx])
-    except ValueError:
-        return np.nan
+            p = ln.split(); p[-1] = str(amp); ln = " ".join(p)
+        lines.append(ln)
+    circ = parse_netlist("\n".join(lines))
+    G, b, nodes = build_mna(circ)
+    return float(np.linalg.solve(G, b)[nodes.index(1)])
 
 
-# --------------------------------------------------------------------------- #
-def run(netlist_str: str, fig):
-    """
-    Called by the GUI when the user clicks 'Visualization'.
-    Produces a live line-plot animation on the supplied Figure.
-    """
-    # -- initial plot boilerplate --------------------------------------------
-    fig.clf()
-    ax = fig.add_subplot(111)
-    ax.set_title("Node-1 Voltage vs. Time (V1 amplitude = 10 sin 2πt)")
-    ax.set_xlabel("Time  [s]")
-    ax.set_ylabel("Voltage  [V]")
+def run(netlist_str: str, fig, params=None):
+    xs, ys = [0], [0]
+    ax = fig.clf().add_subplot(111)
     line, = ax.plot([], [], lw=2)
-    ax.set_ylim(-20, 20)
-    ax.set_xlim(0, 5)
+    ax.set_xlim(0, 5); ax.set_ylim(-20, 20)
+    ax.set_xlabel("t (s)"); ax.set_ylabel("V1 (V)")
+    ax.set_title("Live node-1 voltage (10 sin 2πt)")
 
-    xs, ys = [0], [0]            # first point (0 s, 0 V)
-
-    # -- animation update ----------------------------------------------------
-    def update(frame):
-        t = frame / 20           # 20 fps ⇒ Δt = 0.05 s
-        amp = 10 * np.sin(2 * np.pi * t)          # 1 Hz sine amplitude
-        v_node1 = _solve_voltage(1, amp, netlist_str)
-
-        xs.append(t)
-        ys.append(v_node1)
+    def upd(frame):
+        t = frame / 20
+        amp = 10*np.sin(2*np.pi*t)
+        xs.append(t); ys.append(_v1(netlist_str, amp))
         line.set_data(xs, ys)
-
-        ax.set_xlim(0, max(5, t + 0.5))            # extend x-axis if needed
-        line.figure.canvas.draw_idle()             # << force canvas refresh
         return line,
 
-    # -- create FuncAnimation & keep reference --------------------------------
-    ani = FuncAnimation(fig, update, frames=200, interval=50, blit=False)
-    fig.tight_layout()
-    fig._animation = ani        # prevent garbage-collection of animation
-
-    # initial draw
-    fig.canvas.draw_idle()
-
-    return "Animating node-1 voltage (1 Hz sine on V1)"
+    ani = FuncAnimation(fig, upd, frames=200, interval=50, blit=False)
+    fig._ani = ani; fig.tight_layout()
+    return "Animating node-1 voltage"
