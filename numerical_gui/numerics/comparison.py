@@ -1,53 +1,97 @@
 """
-Comparison
+Comparison of Solvers
+---------------------
+Solve G · x = I using:
+  1) Direct   (numpy.linalg.solve)
+  2) LU       (scipy.linalg.lu_solve)
+  3) CG       (scipy.sparse.linalg.cg)
+
+Reports iteration count & error norms, plots bar chart of runtimes.
+
+Parameters
 ----------
-Direct, LU ve CG→(fallback) GMRES çözümlerini karşılaştırır,
-SPD olmayan/legacy SciPy durumlarına uyumludur.
+tol : float -> CG tolerance (default 1e-10)
+
+Returns
+-------
+str : Table of time (ms) & residuals.
+
+Author : Ugur C. (refactor-clean branch)
 """
-import numpy as np, scipy.sparse.linalg as spla
+from __future__ import annotations
+
+import time
+import numpy as np
+import matplotlib.pyplot as plt
 from scipy.linalg import lu_factor, lu_solve
-from numerics.linear_solver import parse_netlist, build_mna
+from scipy.sparse.linalg import cg
 
-TOL, MAX_IT = 1e-10, 1000
-
-
-def _cg(A, b):
-    try:  return spla.cg(A, b, tol=TOL, maxiter=MAX_IT)
-    except TypeError:  return spla.cg(A, b)
+from .linear_solver import parse_netlist, build_mna  # sibling helpers
 
 
-def _gmres(A, b):
-    try:  return spla.gmres(A, b, tol=TOL, restart=200, maxiter=MAX_IT)
-    except TypeError:  return spla.gmres(A, b)
+# ----------------------------------------------------------------------
+# Timing helpers
+# ----------------------------------------------------------------------
+_now_ms = lambda: time.perf_counter() * 1e3
 
 
-def _iterative(A, b):
-    v, info = _cg(A, b)
-    if info == 0: return v, "CG"
-    v, info = _gmres(A, b)
-    if info != 0: raise RuntimeError(f"GMRES failed (info={info})")
-    return v, "GMRES"
+def _solve_direct(G, I):
+    return np.linalg.solve(G, I)
 
 
-def run(netlist_str: str, fig, params=None):
-    circ = parse_netlist(netlist_str)
-    G, b, nodes = build_mna(circ)
+def _solve_lu(G, I):
+    lu, piv = lu_factor(G)
+    return lu_solve((lu, piv), I)
 
-    v_dir = np.linalg.solve(G, b)
-    v_lu  = lu_solve(lu_factor(G), b)
-    v_it, label = _iterative(G, b)
 
-    n = len(nodes)
-    v_dir, v_lu, v_it = v_dir[:n], v_lu[:n], v_it[:n]
+# ----------------------------------------------------------------------
+# Public entry
+# ----------------------------------------------------------------------
+def run(netlist_str: str, fig: plt.Figure, params: dict | None = None) -> str:
+    p = params or {}
+    tol = float(p.get("tol", 1e-10))
 
-    fig.clf(); ax = fig.add_subplot(111)
-    k = np.arange(n)
-    ax.plot(k, v_dir, "o-", label="Direct")
-    ax.plot(k, v_lu,  "x--", label="LU")
-    ax.plot(k, v_it,  "s:", label=label)
-    ax.set_xlabel("Node"); ax.set_ylabel("V (V)")
-    ax.set_title(f"Node Voltages – Direct vs LU vs {label}")
-    ax.legend(); fig.tight_layout()
+    G, I = build_mna(parse_netlist(netlist_str))
 
-    dev = np.max(np.abs(v_dir - v_it))
-    return f"Max |Direct – {label}| = {dev:.2e} V"
+    # --- Direct -------------------------------------------------------
+    t0 = _now_ms()
+    x_direct = _solve_direct(G, I)
+    t_direct = _now_ms() - t0
+
+    # --- LU -----------------------------------------------------------
+    t0 = _now_ms()
+    x_lu = _solve_lu(G, I)
+    t_lu = _now_ms() - t0
+
+    # --- Conjugate Gradient ------------------------------------------
+    t0 = _now_ms()
+    x_cg, _ = cg(G, I, tol=tol, maxiter=10_000)
+    t_cg = _now_ms() - t0
+
+    residual = lambda x: np.linalg.norm(G @ x - I)
+
+    # ----------------------------- Plot ------------------------------
+    fig.clf()
+    ax = fig.add_subplot(111)
+    bars = ["Direct", "LU", "CG"]
+    times = [t_direct, t_lu, t_cg]
+    ax.bar(bars, times, color=["tab:blue", "tab:green", "tab:orange"])
+    ax.set_ylabel("Time (ms)")
+    ax.set_title("Solver Comparison")
+
+    # Annotate bars
+    for i, v in enumerate(times):
+        ax.text(i, v, f"{v:.1f}", ha="center", va="bottom")
+
+    fig.tight_layout()
+
+    # --------------------------- Report ------------------------------
+    lines = [
+        "[Comparison]",
+        f"{'Method':<10}{'Time (ms)':>12}{'Residual':>14}",
+        "-" * 36,
+        f"{'Direct':<10}{t_direct:12.2f}{residual(x_direct):14.3e}",
+        f"{'LU':<10}{t_lu:12.2f}{residual(x_lu):14.3e}",
+        f"{'CG':<10}{t_cg:12.2f}{residual(x_cg):14.3e}",
+    ]
+    return "\n".join(lines)

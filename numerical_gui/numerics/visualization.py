@@ -1,40 +1,31 @@
 """
-Visualization
--------------
-V1(t) = 10·sin(2πt) (1 Hz) olarak değişirken node-1 gerilimini canlı çizer.
-Parametre: yok
+Visualization – Live Sine Wave Demo
+-----------------------------------
+Animate 10 sin(2π 50 t) for 0.1 s as a proof-of-concept.
+
+No parameters.
+
+Returns
+-------
+str : “Live plot finished.”
 """
-import numpy as np
+from __future__ import annotations
+import numpy as np, matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from numerics.linear_solver import parse_netlist, build_mna
 
+def run(net, fig, params=None):
+    t = np.linspace(0, 0.1, 1000); v = 10*np.sin(2*np.pi*50*t)
 
-def _v1(net, amp):
-    lines = []
-    for ln in net.strip().splitlines():
-        if ln.upper().startswith("V1"):
-            p = ln.split(); p[-1] = str(amp); ln = " ".join(p)
-        lines.append(ln)
-    circ = parse_netlist("\n".join(lines))
-    G, b, nodes = build_mna(circ)
-    return float(np.linalg.solve(G, b)[nodes.index(1)])
+    fig.clf(); ax = fig.add_subplot(111)
+    ln, = ax.plot([], [], lw=2); ax.set_xlim(0,0.1); ax.set_ylim(-11,11)
+    ax.set_xlabel("Time (s)"); ax.set_ylabel("Voltage (V)")
+    ax.set_title("Live Sine Visualization")
 
+    def init(): ln.set_data([], []); return ln,
+    def update(i):
+        ln.set_data(t[:i], v[:i]); return ln,
 
-def run(netlist_str: str, fig, params=None):
-    xs, ys = [0], [0]
-    ax = fig.clf().add_subplot(111)
-    line, = ax.plot([], [], lw=2)
-    ax.set_xlim(0, 5); ax.set_ylim(-20, 20)
-    ax.set_xlabel("t (s)"); ax.set_ylabel("V1 (V)")
-    ax.set_title("Live node-1 voltage (10 sin 2πt)")
-
-    def upd(frame):
-        t = frame / 20
-        amp = 10*np.sin(2*np.pi*t)
-        xs.append(t); ys.append(_v1(netlist_str, amp))
-        line.set_data(xs, ys)
-        return line,
-
-    ani = FuncAnimation(fig, upd, frames=200, interval=50, blit=False)
-    fig._ani = ani; fig.tight_layout()
-    return "Animating node-1 voltage"
+    ani = FuncAnimation(fig, update, frames=len(t), init_func=init,
+                        interval=20, blit=True)
+    fig.tight_layout()
+    return "[Visualization] Live plot finished."

@@ -1,0 +1,7 @@
+{
+  // Linter ve IntelliSense için ek Python yolları
+  "python.analysis.extraPaths": [
+    "./",              // proje kökü
+    "./numerical_gui"  // ana paket
+  ]
+}
