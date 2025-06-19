@@ -1,52 +1,107 @@
 """
-Circuit core utilities.
-Parse a simple SPICE-like netlist and build the MNA matrix.
+Circuit helpers – fixed MNA implementation
+=========================================
+Supports:
+  • R  (resistor)  : Rname n1 n2 value   – Ω
+  • V  (DC source) : Vname n+ n- value   – V
 
-Author: refactor-clean branch
+Extended MNA is used for voltage sources: the admittance matrix is
+(n_nodes + m)×(n_nodes + m) where *m* is the number of voltage sources.
+
+Add further element types by creating new _stamp_* helpers and expanding
+build_mna accordingly.
 """
-import re, numpy as np
-NODE_RE = re.compile(r"^([RVI])(\w+)\s+(\d+)\s+(\d+)\s+([-\d\.]+)", re.I)
 
-def parse_netlist(net: str):
-    elems = []
-    for ln in net.strip().splitlines():
-        ln = ln.strip()
-        if not ln or ln.startswith("*"):
-            continue
-        m = NODE_RE.match(ln)
-        if not m:
-            raise ValueError(f"Bad line: {ln}")
-        t, name, n1, n2, val = m.groups()
-        elems.append((t.upper(), name, int(n1), int(n2), float(val)))
+from __future__ import annotations
+
+from typing import List, Tuple
+import numpy as np
+
+# -----------------------------------------------------------------------------
+# Typing helpers
+# -----------------------------------------------------------------------------
+Elem = Tuple[str, int, int, float]   # (type, node1, node2, value)
+
+# -----------------------------------------------------------------------------
+# 1) Netlist parser
+# -----------------------------------------------------------------------------
+
+def parse_netlist(net: str) -> List[Elem]:
+    """Parse a very small SPICE‑like netlist into a list of tuples."""
+    elems: List[Elem] = []
+    for line in net.strip().splitlines():
+        # remove comments (everything after '*') and extra whitespace
+        line = line.split("*", 1)[0].strip()
+        if not line:
+            continue  # skip blank / comment lines
+
+        name, n1, n2, value = line.split()[:4]
+        elems.append((name[0].upper(), int(n1), int(n2), float(value)))
     return elems
 
-def build_mna(elems):
-    max_node = 0; vsrc = 0
-    for t, _, n1, n2, _ in elems:
-        max_node = max(max_node, n1, n2)
-        if t == "V": vsrc += 1
-    n, m = max_node, vsrc
-    size = n + m
-    G = np.zeros((size, size)); I = np.zeros(size)
-    k = 0
-    for t, _, n1, n2, val in elems:
-        def stamp(a, b, g):
-            if a: G[a-1,a-1] += g
-            if b: G[b-1,b-1] += g
-            if a and b:
-                G[a-1,b-1] -= g
-                G[b-1,a-1] -= g
-        if t == "R":
-            stamp(n1, n2, 1/val)
-        elif t == "I":
-            if n1: I[n1-1] -= val
-            if n2: I[n2-1] += val
-        elif t == "V":
-            row = n + k
-            if n1:
-                G[row, n1-1] = G[n1-1, row] = 1
-            if n2:
-                G[row, n2-1] = G[n2-1, row] = -1
-            I[row] = val
-            k += 1
+# -----------------------------------------------------------------------------
+# 2) Stamp helpers
+# -----------------------------------------------------------------------------
+
+def _stamp_R(G: np.ndarray, n1: int, n2: int, value: float) -> None:
+    """Stamp a resistor into the conductance matrix G."""
+    g = 1.0 / value
+    if n1:
+        G[n1 - 1, n1 - 1] += g
+    if n2:
+        G[n2 - 1, n2 - 1] += g
+    if n1 and n2:
+        G[n1 - 1, n2 - 1] -= g
+        G[n2 - 1, n1 - 1] -= g
+
+
+def _stamp_V(G: np.ndarray, I: np.ndarray,
+             n_nodes: int, k: int,
+             n1: int, n2: int, value: float) -> None:
+    """Stamp a (DC) ideal voltage source using the extended MNA scheme."""
+    row = n_nodes + k  # position of the extra equation / unknown
+
+    # KCL columns (tie current unknown to the nodes)
+    if n1:
+        G[n1 - 1, row] = 1
+        G[row, n1 - 1] = 1
+    if n2:
+        G[n2 - 1, row] = -1
+        G[row, n2 - 1] = -1
+
+    # KVL right‑hand side
+    I[row] = value
+
+# -----------------------------------------------------------------------------
+# 3) Build MNA matrices
+# -----------------------------------------------------------------------------
+
+def build_mna(elems: List[Elem]):
+    """Return (G, I) so that G @ x = I solves for node voltages and source currents."""
+    if not elems:
+        raise ValueError("Empty element list – nothing to solve")
+
+    # Basic counts
+    n_nodes = max(max(n1, n2) for _, n1, n2, _ in elems)  # highest node ID
+    v_srcs: List[Elem] = [e for e in elems if e[0] == "V"]
+    m = len(v_srcs)                                       # number of voltage sources
+
+    N = n_nodes + m                                       # total matrix size
+    G = np.zeros((N, N), dtype=float)
+    I = np.zeros(N, dtype=float)
+
+    # --- stamp resistors first ---
+    for typ, n1, n2, val in elems:
+        if typ == "R":
+            _stamp_R(G, n1, n2, val)
+
+    # --- stamp voltage sources ---
+    for k, (_, n1, n2, val) in enumerate(v_srcs):
+        _stamp_V(G, I, n_nodes, k, n1, n2, val)
+
     return G, I
+
+# -----------------------------------------------------------------------------
+# Re‑exports for convenient import … from ..circuit import parse_netlist, build_mna
+# -----------------------------------------------------------------------------
+__all__ = ["parse_netlist", "build_mna"]

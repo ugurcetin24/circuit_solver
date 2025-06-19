@@ -39,6 +39,8 @@ _LABELS = {
     "comparison": "Comparison",
     "optimization": "Optimisation",
     "interpolation": "Interpolation",
+    "visualization": "Visualization",
+
 }
 
 

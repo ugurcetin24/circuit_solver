@@ -1,97 +1,69 @@
 """
-Comparison of Solvers
----------------------
-Solve G · x = I using:
-  1) Direct   (numpy.linalg.solve)
-  2) LU       (scipy.linalg.lu_solve)
-  3) CG       (scipy.sparse.linalg.cg)
+comparison.py – Direct & LU benchmark (ms)
+==========================================
+Basit ve sağlam: G · x = I sistemini yalnızca
+  1. Direct dense   → numpy.linalg.solve
+  2. LU faktörizasyon→ scipy.linalg.lu_factor / lu_solve   (SciPy varsa)
+ile çözer, süreleri ve ∞-norm artıklarını raporlar.
 
-Reports iteration count & error norms, plots bar chart of runtimes.
-
-Parameters
-----------
-tol : float -> CG tolerance (default 1e-10)
-
-Returns
--------
-str : Table of time (ms) & residuals.
-
-Author : Ugur C. (refactor-clean branch)
+CG çıkarıldı → hiçbir sürüm uyumsuzluğu / yakınsamama hatası kalmaz.
 """
-from __future__ import annotations
 
-import time
+from time import perf_counter
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.linalg import lu_factor, lu_solve
-from scipy.sparse.linalg import cg
 
-from .linear_solver import parse_netlist, build_mna  # sibling helpers
+# — SciPy opsiyonel —
+try:
+    from scipy.linalg import lu_factor, lu_solve
+except Exception:
+    lu_factor = lu_solve = None
 
+from ..circuit import parse_netlist, build_mna
 
-# ----------------------------------------------------------------------
-# Timing helpers
-# ----------------------------------------------------------------------
-_now_ms = lambda: time.perf_counter() * 1e3
-
-
-def _solve_direct(G, I):
-    return np.linalg.solve(G, I)
-
-
-def _solve_lu(G, I):
-    lu, piv = lu_factor(G)
-    return lu_solve((lu, piv), I)
-
-
-# ----------------------------------------------------------------------
-# Public entry
-# ----------------------------------------------------------------------
-def run(netlist_str: str, fig: plt.Figure, params: dict | None = None) -> str:
-    p = params or {}
-    tol = float(p.get("tol", 1e-10))
-
+# ────────── ana fonksiyon ───────────────────────────────────────
+def run(netlist_str: str,
+        fig: plt.Figure | None = None,
+        params: dict | None = None) -> str:
     G, I = build_mna(parse_netlist(netlist_str))
 
-    # --- Direct -------------------------------------------------------
-    t0 = _now_ms()
-    x_direct = _solve_direct(G, I)
-    t_direct = _now_ms() - t0
+    labels, t_ms, resid = [], [], []
 
-    # --- LU -----------------------------------------------------------
-    t0 = _now_ms()
-    x_lu = _solve_lu(G, I)
-    t_lu = _now_ms() - t0
+    # Direct -----------------------------------------------------
+    t0 = perf_counter()
+    x = np.linalg.solve(G, I)
+    t_ms.append((perf_counter() - t0) * 1000)          # ms
+    resid.append(np.linalg.norm(G @ x - I, np.inf))
+    labels.append("Direct")
 
-    # --- Conjugate Gradient ------------------------------------------
-    t0 = _now_ms()
-    x_cg, _ = cg(G, I, tol=tol, maxiter=10_000)
-    t_cg = _now_ms() - t0
+    # LU ---------------------------------------------------------
+    if lu_factor and lu_solve:
+        t0 = perf_counter()
+        x = lu_solve(lu_factor(G), I)
+        t_ms.append((perf_counter() - t0) * 1000)
+        resid.append(np.linalg.norm(G @ x - I, np.inf))
+        labels.append("LU")
 
-    residual = lambda x: np.linalg.norm(G @ x - I)
+    # — Konsol raporu —
+    for l, t, r in zip(labels, t_ms, resid):
+        print(f"{l:<6}: {t:8.3f} ms | residual = {r:.2e}")
 
-    # ----------------------------- Plot ------------------------------
-    fig.clf()
-    ax = fig.add_subplot(111)
-    bars = ["Direct", "LU", "CG"]
-    times = [t_direct, t_lu, t_cg]
-    ax.bar(bars, times, color=["tab:blue", "tab:green", "tab:orange"])
+    # — Grafik —
+    if fig is None:
+        fig, ax = plt.subplots()
+    else:
+        fig.clf(); ax = fig.add_subplot(111)
+
+    bars = ax.bar(labels, t_ms, color="#1f77b4")
     ax.set_ylabel("Time (ms)")
-    ax.set_title("Solver Comparison")
+    ax.set_title("Solver Runtime Comparison")
+    ax.set_ylim(0, max(t_ms) * 1.2 if t_ms else 1)
 
-    # Annotate bars
-    for i, v in enumerate(times):
-        ax.text(i, v, f"{v:.1f}", ha="center", va="bottom")
+    for rect, t in zip(bars, t_ms):
+        ax.annotate(f"{t:.2f}",
+                    xy=(rect.get_x() + rect.get_width() / 2, rect.get_height()),
+                    xytext=(0, 3), textcoords="offset points",
+                    ha="center", va="bottom", fontsize=8)
 
     fig.tight_layout()
-
-    # --------------------------- Report ------------------------------
-    lines = [
-        "[Comparison]",
-        f"{'Method':<10}{'Time (ms)':>12}{'Residual':>14}",
-        "-" * 36,
-        f"{'Direct':<10}{t_direct:12.2f}{residual(x_direct):14.3e}",
-        f"{'LU':<10}{t_lu:12.2f}{residual(x_lu):14.3e}",
-        f"{'CG':<10}{t_cg:12.2f}{residual(x_cg):14.3e}",
-    ]
-    return "\n".join(lines)
+    return "[Comparison] OK"
